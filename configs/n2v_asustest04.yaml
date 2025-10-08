@@ -1,0 +1,44 @@
+run_benchmarks: true
+evaluate_benchmarks: true
+dataset: "n2v_artificial_denoising_dataset"
+logging:
+  file: null
+  level: DEBUG
+
+benchmarks:
+  enabled:
+    - n2v_artificial_denoising
+  parameters:
+    n2v_artificial_denoising:
+      warmup_iterations: 1
+      num_iterations: 2
+      precisions:
+        - "float32"
+        # - "float64"
+      cpu_resolutions:
+        - [128, 128]
+        - [256, 256]
+        - [512, 512]
+        - [1024, 1024]
+        - [2048, 2048]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
+        # - [32768, 32768]
+      gpu_resolutions:
+        - [128, 128]
+        - [256, 256]
+        - [512, 512]
+        - [1024, 1024]
+        - [2048, 2048]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
+        # - [32768, 32768]
+      devices:
+        auto_detect: true
+        exclude_patterns: []
+        include_cpu: true
+        include_gpu: true
+      evaluation:
+        included_results: None # defaults to latest per flavour
