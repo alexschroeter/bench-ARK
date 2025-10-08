@@ -7,9 +7,14 @@ logging:
 
 benchmarks:
   enabled:
-    - careamics_artificial_denoising
+    - careamics_n2n_artificial_denoising
+    - careamics_n2v_artificial_denoising
+    - careamics_care_artificial_denoising
+    - careamics_n2n_example
+    - careamics_n2v_example
+    - careamics_care_example
   parameters:
-    careamics_artificial_denoising:
+    careamics_n2n_artificial_denoising:
       warmup_iterations: 1
       num_iterations: 2
       precisions:
@@ -21,9 +26,9 @@ benchmarks:
         - [512, 512]
         - [1024, 1024]
         - [2048, 2048]
-        - [4096, 4096]
-        - [8192, 8192]
-        - [16384, 16384]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
         # - [32768, 32768]
       gpu_resolutions:
         - [128, 128]
@@ -31,9 +36,75 @@ benchmarks:
         - [512, 512]
         - [1024, 1024]
         - [2048, 2048]
-        - [4096, 4096]
-        - [8192, 8192]
-        - [16384, 16384]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
+        # - [32768, 32768]
+      devices:
+        auto_detect: true
+        exclude_patterns: []
+        include_cpu: true
+        include_gpu: true
+      evaluation:
+        included_results: None # defaults to latest per flavour
+    careamics_n2vartificial_denoising:
+      warmup_iterations: 1
+      num_iterations: 2
+      precisions:
+        - "float32"
+        # - "float64"
+      cpu_resolutions:
+        - [128, 128]
+        - [256, 256]
+        - [512, 512]
+        - [1024, 1024]
+        - [2048, 2048]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
+        # - [32768, 32768]
+      gpu_resolutions:
+        - [128, 128]
+        - [256, 256]
+        - [512, 512]
+        - [1024, 1024]
+        - [2048, 2048]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
+        # - [32768, 32768]
+      devices:
+        auto_detect: true
+        exclude_patterns: []
+        include_cpu: true
+        include_gpu: true
+      evaluation:
+        included_results: None # defaults to latest per flavour
+    careamics_care_artificial_denoising:
+      warmup_iterations: 1
+      num_iterations: 2
+      precisions:
+        - "float32"
+        # - "float64"
+      cpu_resolutions:
+        - [128, 128]
+        - [256, 256]
+        - [512, 512]
+        - [1024, 1024]
+        - [2048, 2048]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
+        # - [32768, 32768]
+      gpu_resolutions:
+        - [128, 128]
+        - [256, 256]
+        - [512, 512]
+        - [1024, 1024]
+        - [2048, 2048]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
         # - [32768, 32768]
       devices:
         auto_detect: true

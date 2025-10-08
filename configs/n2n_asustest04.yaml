@@ -1,15 +1,15 @@
 run_benchmarks: true
 evaluate_benchmarks: true
-dataset: "n2v_artificial_denoising_dataset"
+dataset: "n2n_artificial_denoising_dataset"
 logging:
   file: null
   level: DEBUG
 
 benchmarks:
   enabled:
-    - n2v_artificial_denoising
+    - n2n_artificial_denoising
   parameters:
-    n2v_artificial_denoising:
+    n2n_artificial_denoising:
       warmup_iterations: 1
       num_iterations: 2
       precisions:
