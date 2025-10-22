@@ -1,6 +1,6 @@
-run_benchmarks: false
+run_benchmarks: true
 evaluate_benchmarks: True
-dataset: "cellpose_asustest04_dataset_nepochs500_deterministic"
+dataset: "cellpose_asustest04_dataset"
 logging:
   file: latest.log
   level: DEBUG
