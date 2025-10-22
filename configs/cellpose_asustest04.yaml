@@ -1,16 +1,17 @@
-run_benchmarks: true
-evaluate_benchmarks: false
-dataset: "cellpose_asustest04_dataset"
+run_benchmarks: false
+evaluate_benchmarks: True
+dataset: "cellpose_asustest04_dataset_nepochs500_deterministic"
 logging:
-  file: null
-  level: INFO
+  file: latest.log
+  level: DEBUG
 
 benchmarks:
   enabled:
-    - cellpose_artificial_inference
+    # - cellpose_artificial_inference
+    - cellpose_training
   parameters:
     cellpose_artificial_inference:
-      warmup_iterations: 1
+      warmup_iterations: 
       num_iterations: 2
       precisions:
         - "float32"
@@ -20,20 +21,20 @@ benchmarks:
         - [256, 256]
         - [512, 512]
         - [1024, 1024]
-        - [2048, 2048]
-        - [4096, 4096]
-        - [8192, 8192]
-        - [16384, 16384]
+        # - [2048, 2048]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
         # - [32768, 32768]
       gpu_resolutions:
         - [128, 128]
         - [256, 256]
         - [512, 512]
         - [1024, 1024]
-        - [2048, 2048]
-        - [4096, 4096]
-        - [8192, 8192]
-        - [16384, 16384]
+        # - [2048, 2048]
+        # - [4096, 4096]
+        # - [8192, 8192]
+        # - [16384, 16384]
         # - [32768, 32768]
       devices:
         auto_detect: true
@@ -42,3 +43,12 @@ benchmarks:
         include_gpu: true
       evaluation:
         included_results: None # defaults to latest per flavour
+    cellpose_training:
+      deterministic: true
+      seed: 42
+      warmup_iterations: 0    # Minimal warmup to test if it works
+      num_iterations: 1      # Minimal iterations to test if it works
+      n_epochs: 10           # Very minimal training to test if it works
+      learning_rate: 1e-3    # Higher learning rate for quick training
+      weight_decay: 0.0      # No weight decay to simplify
+      batch_size: 1          # Batch size

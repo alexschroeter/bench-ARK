@@ -11,6 +11,7 @@ from .pytorch_base import PyTorchBenchmark
 
 logger = logging.getLogger(__name__)
 
+
 class ModelManager:
     """Simplified version of ModelManager for Cellpose model loading and device assignment"""
     
