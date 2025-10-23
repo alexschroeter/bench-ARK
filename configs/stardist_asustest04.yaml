@@ -10,8 +10,8 @@ benchmarks:
     - stardist_artificial_segmentation
   parameters:
     stardist_artificial_segmentation:
-      warmup_iterations: 1
-      num_iterations: 2
+      warmup_iterations: 0
+      num_iterations: 1
       precisions:
         - "float32"
         # - "float64"

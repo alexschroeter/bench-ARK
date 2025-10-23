@@ -29,7 +29,8 @@ class BaseBenchmark(ABC):
         self.device_manager._set_available_devices(self._get_available_devices())
         logger.info(f"Benchmark {self.name} found {len(self.device_manager._list_available_devices())} available devices.")
         for device in self.device_manager._list_available_devices():
-            logger.info(f" - {device.name} ({device.type})")
+            device_type = getattr(device, "type", "unknow")
+            logger.info(f" - {device.name} ({device_type})")
 
     def run(self) -> Dict[str, Any]:
         """
