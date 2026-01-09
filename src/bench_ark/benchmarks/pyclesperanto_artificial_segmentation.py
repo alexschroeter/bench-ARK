@@ -68,6 +68,16 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
         for device in devices:
             logger.info(f"\n--- Testing Device: {device.name} ({device.type}) ---")
             
+            # Check if this is the CPU fallback device
+            use_cpu_fallback = (device.id == 'cpu-fallback')
+            
+            # Select the pyclesperanto device for GPU, or log CPU fallback
+            if use_cpu_fallback:
+                logger.info(f"  Using CPU fallback (skimage)")
+            elif self.opencl_available:
+                selected = self.opencl.select_device(device_index=device.id)
+                logger.info(f"  Selected pyclesperanto device: {selected.name}")
+            
             # Determine which resolutions to use based on device type
             if device.type.lower() == 'cpu':
                 resolutions = cpu_resolutions
@@ -96,7 +106,7 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
                     logger.debug(f"      Running {warmup_iterations} warmup iterations...")
                     for _ in range(warmup_iterations):
                         try:
-                            _, _ = self._run_single_inference(test_image, device_context)
+                            _, _ = self._run_single_inference(test_image, device_context, use_cpu_fallback)
                         except Exception as e:
                             logger.warning(f"Warmup iteration failed: {e}")
                     
@@ -109,7 +119,7 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
                     logger.debug(f"      Running {num_iterations} benchmark iterations...")
                     for iteration in range(num_iterations):
                         try:
-                            inference_time, mask = self._run_single_inference(test_image, device_context)
+                            inference_time, mask = self._run_single_inference(test_image, device_context, use_cpu_fallback)
                             inference_times.append(inference_time)
                             masks_collected.append(mask)
                             successful_iterations += 1
@@ -351,13 +361,14 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
         
         return image.astype(precision_map[precision])
     
-    def _run_single_inference(self, image: np.ndarray, device_context: str = None) -> tuple:
+    def _run_single_inference(self, image: np.ndarray, device_context: str = None, use_cpu_fallback: bool = False) -> tuple:
         """
         Run a single pyclesperanto processing pipeline and return the execution time and mask.
         
         Args:
             image: Input image
             device_context: Device context string (unused for pyclesperanto)
+            use_cpu_fallback: If True, use skimage CPU fallback instead of pyclesperanto
             
         Returns:
             Tuple of (inference_time, mask) where:
@@ -367,24 +378,43 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
         start_time = time.time()
         
         try:
-            if not self.opencl_available:
-                # Fallback: just return a simple thresholded mask
+            if use_cpu_fallback or not self.opencl_available:
+                # CPU Fallback: use skimage for processing
+                # Replicate gauss_otsu_labeling behavior: blur, threshold, then label
                 import skimage.filters
-                threshold = skimage.filters.threshold_otsu(image)
-                mask = (image > threshold).astype(np.uint8)
+                import skimage.measure
+                import scipy.ndimage as ndi
+                
+                # Apply Gaussian blur (similar to outline_sigma=1 in gauss_otsu_labeling)
+                blurred = ndi.gaussian_filter(image.astype(np.float32), sigma=1)
+                
+                # Otsu threshold
+                threshold = skimage.filters.threshold_otsu(blurred)
+                binary_mask = blurred > threshold
+                
+                # Connected component labeling to get individual cell IDs
+                mask = skimage.measure.label(binary_mask).astype(np.uint32)
+                
                 inference_time = time.time() - start_time
                 return inference_time, mask
                 
             # Convert to GPU
-            gpu_input = self.opencl.push(image)
+            gpu_input = self.opencl.push(image.astype(np.float32))
 
-            segmented = self.opencl.gauss_otsu_labeling(gpu_input, outline_sigma=1)
+            # Step 1: Gaussian blur (equivalent to outline_sigma=1)
+            blurred = self.opencl.gaussian_blur(gpu_input, sigma_x=1, sigma_y=1)
+            
+            # Step 2: Otsu threshold
+            binary = self.opencl.threshold_otsu(blurred)
+            
+            # Step 3: Connected component labeling
+            segmented = self.opencl.connected_components_labeling_box(binary)
 
             # Pull result back to CPU
             mask = self.opencl.pull(segmented)
             
             # Clean up GPU memory
-            del gpu_input, segmented
+            del gpu_input, blurred, binary, segmented
 
             inference_time = time.time() - start_time
             return inference_time, mask
@@ -393,13 +423,17 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
             # Still return time even if inference failed
             inference_time = time.time() - start_time
             logger.debug(f"pyclesperanto processing failed but took {inference_time:.4f}s: {e}")
-            # Return simple fallback mask
+            # Return labeled fallback mask using same approach as CPU fallback
             import skimage.filters
+            import skimage.measure
+            import scipy.ndimage as ndi
             try:
-                threshold = skimage.filters.threshold_otsu(image)
-                mask = (image > threshold).astype(np.uint8)
+                blurred = ndi.gaussian_filter(image.astype(np.float32), sigma=1)
+                threshold = skimage.filters.threshold_otsu(blurred)
+                binary_mask = blurred > threshold
+                mask = skimage.measure.label(binary_mask).astype(np.uint32)
             except:
-                mask = np.zeros_like(image, dtype=np.uint8)
+                mask = np.zeros_like(image, dtype=np.uint32)
             return inference_time, mask
     
     def _calculate_processed_metrics(self, inference_times: List[float]) -> Dict[str, float]:
@@ -661,8 +695,28 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
             logger.warning("No masks found for evaluation")
             return
 
+        # Get max resolution for analysis from config
+        benchmark_params = self.config.get('benchmarks', {}).get('parameters', {}).get(self.name, {})
+        eval_params = benchmark_params.get('evaluation', {})
+        max_res = eval_params.get('max_resolution_analysis', None)
+        if max_res:
+            max_pixels = max_res[0] * max_res[1]
+            logger.info(f"Max resolution for analysis: {max_res[0]}x{max_res[1]} ({max_pixels} pixels)")
+        
         # Create evaluation plots for each resolution/precision combination
         for config_key, mask_data in mask_groups.items():
+            # Check if resolution exceeds max_resolution_analysis
+            if max_res:
+                # Parse resolution from config_key (e.g., "512x512_float32")
+                resolution_str = config_key.rsplit('_', 1)[0]
+                res_parts = resolution_str.split('x')
+                if len(res_parts) == 2:
+                    width, height = int(res_parts[0]), int(res_parts[1])
+                    current_pixels = width * height
+                    if current_pixels > max_pixels:
+                        logger.info(f"Skipping {config_key} - exceeds max_resolution_analysis ({width}x{height} > {max_res[0]}x{max_res[1]})")
+                        continue
+            
             # Check if ground truth data exists for this resolution before proceeding
             if not self._check_ground_truth_data_exists(config_key):
                 logger.warning(f"Ground truth data not found for {config_key}, skipping evaluation plots")
@@ -1543,6 +1597,85 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
         except Exception as e:
             logger.error(f"Failed to save evaluation plot {plot_name}: {e}")
     
+    def _save_benchmark_data_files(self, plotting_data: list) -> None:
+        """
+        Save benchmark data files for each device in a simple text format.
+        
+        Creates one file per device containing size and time columns,
+        suitable for external analysis tools.
+        
+        Args:
+            plotting_data: List of data points from _convert_results_for_performance_plot
+        """
+        if not plotting_data:
+            logger.warning("No plotting data available for saving benchmark files")
+            return
+        
+        try:
+            dataset = self.config.get('dataset', 'default_dataset')
+            plot_dir = Path(dataset) / self.name / f"{self.timestamp}_plots"
+            plot_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Group data by device
+            device_data = {}
+            for data_point in plotting_data:
+                device_name = data_point.get('device_name', 'unknown')
+                device_type = data_point.get('device_type', 'unknown')
+                device_key = f"{device_name}_{device_type}"
+                
+                if device_key not in device_data:
+                    device_data[device_key] = {
+                        'device_name': device_name,
+                        'device_type': device_type,
+                        'device_model': data_point.get('device_model', device_name),
+                        'flavour': data_point.get('flavour', 'unknown'),
+                        'flavour_name': data_point.get('flavour_name', 'unknown'),
+                        'precision': data_point.get('precision', 'float32'),
+                        'measurements': []
+                    }
+                
+                device_data[device_key]['measurements'].append({
+                    'size': data_point.get('image_size_pixels', 0),
+                    'time': data_point.get('inference_time', 0.0)
+                })
+            
+            # Save data file for each device
+            for device_key, data in device_data.items():
+                # Sort measurements by size
+                measurements = sorted(data['measurements'], key=lambda x: x['size'])
+                
+                # Create safe filename
+                safe_device_name = "".join(
+                    c for c in data['device_name'] if c.isalnum() or c in (' ', '-', '_')
+                ).rstrip().replace(' ', '_')
+                filename = f"benchmark_data_{safe_device_name}_{data['device_type']}.dat"
+                filepath = plot_dir / filename
+                
+                # Build header with metadata
+                header_lines = [
+                    f"# PyClesperanto benchmark data - {data['device_name']} ({data['device_type'].upper()})",
+                    f"# Device model: {data['device_model']}",
+                    f"# Flavour: {data['flavour']} ({data['flavour_name']})",
+                    f"# Precision: {data['precision']}",
+                    f"# Run ID: {self.timestamp}",
+                    f"# ",
+                    f"# size: image size in pixels (width * height)",
+                    f"# time: inference time in seconds",
+                ]
+                
+                # Write file
+                with open(filepath, 'w') as f:
+                    for line in header_lines:
+                        f.write(line + '\n')
+                    f.write("size time\n")
+                    for m in measurements:
+                        f.write(f"{m['size']} {m['time']:.6f}\n")
+                
+                logger.info(f"  Benchmark data saved: {filename}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save benchmark data files: {e}")
+    
     def _evaluate_benchmark(self) -> None:
         """
         Evaluate benchmark results by creating performance analysis and plots.
@@ -1555,6 +1688,9 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
         
         # Convert real benchmark results for plotting
         plotting_data = self._convert_results_for_performance_plot()
+        
+        # Save benchmark data files for each device
+        self._save_benchmark_data_files(plotting_data)
         
         try:
             # Import performance plotter

@@ -48,14 +48,15 @@ class PyClesperantoBenchmark(BaseBenchmark):
         
         logger.debug(f"arkitekt_flavour: {self.config.get('arkitekt_flavour')}")
         
-        if self.config.get("arkitekt_flavour") == "nvidia_gpu" or self.config.get("arkitekt_flavour") == "amd_gpu" or self.config.get("arkitekt_flavour") == "intel_gpu":
+        flavour = self.config.get("arkitekt_flavour")
+        
+        if flavour in ["nvidia_gpu", "amd_gpu", "intel_gpu"]:
             if self.opencl_available:
                 # Get the list of device names and iterate over them with indices
                 device_names = self.opencl.available_device_names()
                 for i in range(len(device_names)):
                     props = self.opencl.select_device(device_index=i)
                     # Determine device type based on arkitekt_flavour
-                    flavour = self.config.get("arkitekt_flavour")
                     if flavour == 'nvidia_gpu':
                         device_type = 'cuda'
                     elif flavour == 'amd_gpu':
@@ -68,9 +69,18 @@ class PyClesperantoBenchmark(BaseBenchmark):
                     devices.append({
                         'name': f'{props.name}',
                         'type': device_type,
-                        'framework': 'pytorch',
+                        'framework': 'pyclesperanto',
                         'id': i
                     })
+            
+            # Add CPU fallback device (uses skimage fallback)
+            devices.append({
+                'name': 'CPU-fallback',
+                'type': 'cpu',
+                'framework': 'skimage',
+                'id': 'cpu-fallback',
+                'arkitekt_flavour': flavour  # Store the flavour for result association
+            })
         
         logger.debug(f"Total devices detected: {len(devices)}")
         return devices

@@ -1,6 +1,6 @@
 run_benchmarks: true
 evaluate_benchmarks: true
-dataset: "pyclesperanto_asustest04_dataset"
+dataset: "pyclesperanto_asustest04_dataset_cpu_test"
 logging:
   file: null
   level: DEBUG
@@ -21,20 +21,20 @@ benchmarks:
         - [512, 512]
         - [1024, 1024]
         - [2048, 2048]
-        # - [4096, 4096]
-        # - [8192, 8192]
-        # - [16384, 16384]
-        # - [32768, 32768]
+        - [4096, 4096]
+        - [8192, 8192]
+        - [16384, 16384]
+        - [32768, 32768]
       gpu_resolutions:
         - [128, 128]
         - [256, 256]
         - [512, 512]
         - [1024, 1024]
         - [2048, 2048]
-        # - [4096, 4096]
-        # - [8192, 8192]
-        # - [16384, 16384]
-        # - [32768, 32768]
+        - [4096, 4096]
+        - [8192, 8192]
+        - [16384, 16384]
+        - [32768, 32768]
       devices:
         auto_detect: true
         exclude_patterns: []
@@ -42,3 +42,4 @@ benchmarks:
         include_gpu: true
       evaluation:
         included_results: None # defaults to latest per flavour
+        max_resolution_analysis: [4096, 4096]  # Cap resolution for ground truth and device comparison analysis
