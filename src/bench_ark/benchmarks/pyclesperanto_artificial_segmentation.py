@@ -68,13 +68,13 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
         for device in devices:
             logger.info(f"\n--- Testing Device: {device.name} ({device.type}) ---")
             
-            # Check if this is the CPU fallback device
-            use_cpu_fallback = (device.id == 'cpu-fallback')
+            # Check if this is the CPU fallback device (skimage framework)
+            use_cpu_fallback = (device.framework == 'skimage')
             
-            # Select the pyclesperanto device for GPU, or log CPU fallback
+            # Select the pyclesperanto device, or log CPU fallback
             if use_cpu_fallback:
                 logger.info(f"  Using CPU fallback (skimage)")
-            elif self.opencl_available:
+            elif self.opencl_available and isinstance(device.id, int):
                 selected = self.opencl.select_device(device_index=device.id)
                 logger.info(f"  Selected pyclesperanto device: {selected.name}")
             
@@ -145,6 +145,7 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
                         'device_id': device.id,
                         'device_model': getattr(device, 'cpu_model', device.name) if device.type.lower() == 'cpu' else device.name,
                         'arkitekt_flavour': getattr(device, 'arkitekt_flavour', 'unknown'),
+                        'framework': getattr(device, 'framework', 'unknown'),
                         'resolution': [width, height],
                         'precision': precision,
                         'warmup_iterations': warmup_iterations,
@@ -727,10 +728,15 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
             # Create ground truth comparison
             self._create_ground_truth_comparison(config_key, mask_data)
             self._create_ground_truth_comparison_reduced_cpu(config_key, mask_data)
+            self._create_ground_truth_comparison_gpu_vs_cpu(config_key, mask_data)
+            self._create_ground_truth_comparison_cpu_opencl_vs_skimage(config_key, mask_data)
             
             # Create device comparison matrix
             self._create_device_comparison_matrix(config_key, mask_data)
             self._create_device_comparison_matrix_reduced_cpu(config_key, mask_data)
+            
+            # Create simplified GPU vs CPU comparison (2x2 grid)
+            self._create_device_comparison_gpu_vs_cpu(config_key, mask_data)
 
     def _check_ground_truth_data_exists(self, config_key: str) -> bool:
         """
@@ -792,6 +798,7 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
                         'device_name': test_data.get('device_name', 'Unknown'),
                         'device_type': test_data.get('device_type', 'unknown'),
                         'device_model': test_data.get('device_model', 'Unknown'),
+                        'framework': test_data.get('framework', 'unknown'),
                         'flavour': flavour,
                         'timestamp': timestamp,
                         'mask_filename': test_data.get('mask_filename'),
@@ -1147,6 +1154,356 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
             
         except Exception as e:
             logger.error(f"Failed to create reduced CPU ground truth comparison for {config_key}: {e}")
+
+    def _create_ground_truth_comparison_gpu_vs_cpu(self, config_key: str, mask_data: List[Dict[str, Any]]):
+        """
+        Create ground truth comparison visualization with only one GPU and one CPU.
+        
+        Creates a simplified 2x2 grid showing ground truth comparison for GPU vs CPU.
+        Shows ground truth and difference plots for one GPU and one CPU device.
+        """
+        if not mask_data:
+            return
+        
+        try:
+            # Filter mask data to one GPU and one CPU
+            filtered_mask_data = self._reduce_to_gpu_vs_cpu(mask_data)
+            
+            # We need exactly 2 devices (one GPU, one CPU)
+            if len(filtered_mask_data) != 2:
+                logger.debug(f"GPU vs CPU ground truth comparison requires exactly 2 devices for {config_key}, got {len(filtered_mask_data)}")
+                return
+            
+            # Check if we have both GPU and CPU
+            device_types = [entry.get('device_type', '').lower() for entry in filtered_mask_data]
+            has_gpu = any(dt != 'cpu' for dt in device_types)
+            has_cpu = any(dt == 'cpu' for dt in device_types)
+            
+            if not (has_gpu and has_cpu):
+                logger.debug(f"GPU vs CPU ground truth comparison requires both GPU and CPU devices for {config_key}")
+                return
+            
+            # Load the actual ground truth from data directory
+            # Parse resolution from config_key (e.g., "512x512_float32" -> (512, 512))
+            resolution_str = config_key.split('_')[0]  # Get "512x512" part
+            resolution_parts = resolution_str.split('x')
+            
+            if len(resolution_parts) != 2:
+                logger.error(
+                    f"Invalid resolution format in '{config_key}': got "
+                    f"'{resolution_str}' with {len(resolution_parts)} parts"
+                )
+                return
+            
+            width, height = map(int, resolution_parts)
+            
+            # Load ground truth mask from data directory
+            dataset = self.config.get('dataset', 'default_dataset')
+            data_dir = Path.cwd() / dataset / self.name / "data"
+            gt_file = data_dir / f"ground_truth_{width}x{height}.npy"
+            
+            if not gt_file.exists():
+                logger.warning(f"Ground truth file not found: {gt_file}")
+                return
+            
+            gt_data = np.load(gt_file, allow_pickle=True).item()
+            if not isinstance(gt_data, dict) or 'ground_truth_mask' not in gt_data:
+                logger.warning(f"Invalid ground truth data format in: {gt_file}")
+                return
+            
+            gt_mask = gt_data['ground_truth_mask']
+            logger.info(f"  Using actual ground truth from: {gt_file.name} for {config_key} (GPU vs CPU)")
+            
+            # Load the original artificial image for the top-left position
+            img_file = data_dir / f"artificial_image_{width}x{height}.npy"
+            
+            if not img_file.exists():
+                logger.warning(f"Original image file not found: {img_file}")
+                return
+            
+            original_image = np.load(img_file)
+            logger.info(f"  Using original image from: {img_file.name} for {config_key} (GPU vs CPU)")
+            
+            # Normalize ground truth mask for consistent visualization
+            gt_mask_normalized = self._normalize_instance_mask(gt_mask)
+            gt_max_instances = np.max(gt_mask_normalized) if np.max(gt_mask_normalized) > 0 else 1
+            
+            # Create comparison plot with ground truth column (3 columns: ground truth, GPU, CPU)
+            import matplotlib.pyplot as plt
+            
+            n_devices = len(filtered_mask_data)  # Should be 2
+            # Add 1 extra column for ground truth
+            fig, axes = plt.subplots(2, n_devices + 1, figsize=(4*(n_devices + 1), 8))
+            
+            # First column, top row: Original input image
+            axes[0, 0].imshow(original_image, cmap='gray')
+            axes[0, 0].set_title("Original Image\nInput", fontsize=10, fontweight='bold')
+            axes[0, 0].axis('off')
+            
+            # First column, bottom row: Ground truth mask
+            axes[1, 0].imshow(gt_mask_normalized, cmap='viridis', vmin=0, vmax=gt_max_instances)
+            axes[1, 0].set_title("Ground Truth\nReference", fontsize=9, fontweight='bold')
+            axes[1, 0].axis('off')
+            
+            for idx, mask_entry in enumerate(filtered_mask_data):
+                device_mask = self._load_mask(mask_entry)
+                if device_mask is None:
+                    continue
+                
+                # Adjust column index to account for ground truth column
+                col_idx = idx + 1
+                
+                device_type = mask_entry['device_type']
+                device_model = mask_entry.get('device_model', mask_entry['device_name'])
+                
+                # Simple label: GPU or CPU with device model
+                if device_type.lower() == 'cpu':
+                    device_title = f"CPU:\n{device_model}"
+                else:
+                    device_title = f"GPU:\n{device_model}"
+                
+                # Normalize device mask for consistent visualization
+                device_mask_normalized = self._normalize_instance_mask(device_mask)
+                device_max_instances = np.max(device_mask_normalized) if np.max(device_mask_normalized) > 0 else 1
+                
+                # Top row: Original masks with improved titles and dynamic colormap range
+                axes[0, col_idx].imshow(device_mask_normalized, cmap='viridis', vmin=0, vmax=device_max_instances)
+                axes[0, col_idx].set_title(device_title, fontsize=10, fontweight='bold')
+                axes[0, col_idx].axis('off')
+                
+                # Bottom row: Binary difference visualization with black borders
+                # Convert instance masks to binary masks for meaningful comparison
+                gt_binary = (gt_mask > 0).astype(float)  # Convert to binary: 0=background, 1=cells
+                device_binary = (device_mask > 0).astype(float)  # Convert to binary: 0=background, 1=cells
+                
+                # Create binary difference mask: 0 where pixels match, 1 where they differ
+                diff_binary = (device_binary != gt_binary).astype(float)
+                
+                # Create RGB image: white background (1,1,1), red differences (1,0,0)
+                diff_rgb = np.ones((diff_binary.shape[0], diff_binary.shape[1], 3))
+                diff_rgb[:, :, 1] = 1 - diff_binary  # Green channel: 1 for matches, 0 for differences
+                diff_rgb[:, :, 2] = 1 - diff_binary  # Blue channel: 1 for matches, 0 for differences
+                # Red channel stays 1 everywhere, so differences are red (1,0,0), matches are white (1,1,1)
+                
+                axes[1, col_idx].imshow(diff_rgb)
+                
+                # Calculate percentage of differing pixels and cell count comparison
+                diff_pixels = int(diff_binary.sum())
+                total_pixels = int(diff_binary.size)
+                diff_percent = (diff_pixels / total_pixels) * 100
+                
+                # Format percentage with scientific notation if very small
+                if diff_percent < 0.01 and diff_percent > 0:
+                    diff_percent_str = f"{diff_percent:.2e}%"
+                else:
+                    diff_percent_str = f"{diff_percent:.2f}%"
+                
+                gt_cells = self._count_non_overlapped_cells(gt_mask)  # Count only non-overlapped cells
+                device_cells = len(np.unique(device_mask)) - 1  # Subtract 1 for background
+                
+                axes[1, col_idx].set_title(f"Binary Mask Differences\n({diff_percent_str}, {diff_pixels:,} pixels)\nGT:{gt_cells} vs Dev:{device_cells} cells", 
+                                     fontsize=9, fontweight='bold')
+                
+                # Add black border around bottom row images
+                for spine in axes[1, col_idx].spines.values():
+                    spine.set_visible(True)
+                    spine.set_color('black')
+                    spine.set_linewidth(3)
+                axes[1, col_idx].tick_params(which='both', length=0)  # Hide tick marks
+                
+                # Keep axis off but borders visible
+                axes[1, col_idx].set_xticks([])
+                axes[1, col_idx].set_yticks([])
+            
+            # Extract precision from config_key for title
+            precision = config_key.split('_')[-1]  # Get "float32" part from "512x512_float32"
+            
+            plt.suptitle(f'PyClesperanto Blur Ground Truth Comparison (GPU vs CPU) - '
+                         f'{precision}\nTop: Instance Masks | Bottom: '
+                         f'Binary Mask Differences (White=Match, Red=Differ)',
+                         fontsize=14, fontweight='bold')
+            plt.tight_layout()
+            
+            # Save plot
+            self._save_evaluation_plot(fig, f'ground_truth_comparison_gpu_vs_cpu_{config_key}')
+            plt.close(fig)
+            
+        except Exception as e:
+            logger.error(f"Failed to create GPU vs CPU ground truth comparison for {config_key}: {e}")
+    
+    def _create_ground_truth_comparison_cpu_opencl_vs_skimage(self, config_key: str, mask_data: List[Dict[str, Any]]):
+        """
+        Create ground truth comparison visualization comparing CPU OpenCL (pyclesperanto) vs CPU skimage fallback.
+        
+        Creates a 2x3 grid showing:
+        - Column 1: Original image (top), Ground truth (bottom)
+        - Column 2: CPU OpenCL result (top), difference from GT (bottom)
+        - Column 3: CPU skimage result (top), difference from GT (bottom)
+        """
+        if not mask_data:
+            return
+        
+        try:
+            # Filter mask data to find CPU OpenCL and CPU skimage devices
+            cpu_opencl = None
+            cpu_skimage = None
+            
+            for entry in mask_data:
+                device_type = entry.get('device_type', '').lower()
+                framework = entry.get('framework', '').lower()
+                
+                if device_type == 'cpu':
+                    if framework == 'pyclesperanto' and cpu_opencl is None:
+                        cpu_opencl = entry
+                    elif framework == 'skimage' and cpu_skimage is None:
+                        cpu_skimage = entry
+            
+            # We need both CPU OpenCL and CPU skimage
+            if cpu_opencl is None or cpu_skimage is None:
+                logger.debug(f"CPU OpenCL vs skimage comparison requires both CPU OpenCL and CPU skimage devices for {config_key}")
+                return
+            
+            # Load the actual ground truth from data directory
+            # Parse resolution from config_key (e.g., "512x512_float32" -> (512, 512))
+            resolution_str = config_key.split('_')[0]  # Get "512x512" part
+            resolution_parts = resolution_str.split('x')
+            
+            if len(resolution_parts) != 2:
+                logger.error(
+                    f"Invalid resolution format in '{config_key}': got "
+                    f"'{resolution_str}' with {len(resolution_parts)} parts"
+                )
+                return
+            
+            width, height = map(int, resolution_parts)
+            
+            # Load ground truth mask from data directory
+            dataset = self.config.get('dataset', 'default_dataset')
+            data_dir = Path.cwd() / dataset / self.name / "data"
+            gt_file = data_dir / f"ground_truth_{width}x{height}.npy"
+            
+            if not gt_file.exists():
+                logger.warning(f"Ground truth file not found: {gt_file}")
+                return
+            
+            gt_data = np.load(gt_file, allow_pickle=True).item()
+            if not isinstance(gt_data, dict) or 'ground_truth_mask' not in gt_data:
+                logger.warning(f"Invalid ground truth data format in: {gt_file}")
+                return
+            
+            gt_mask = gt_data['ground_truth_mask']
+            logger.info(f"  Using actual ground truth from: {gt_file.name} for {config_key} (CPU OpenCL vs skimage)")
+            
+            # Load the original artificial image for the top-left position
+            img_file = data_dir / f"artificial_image_{width}x{height}.npy"
+            
+            if not img_file.exists():
+                logger.warning(f"Original image file not found: {img_file}")
+                return
+            
+            original_image = np.load(img_file)
+            logger.info(f"  Using original image from: {img_file.name} for {config_key} (CPU OpenCL vs skimage)")
+            
+            # Normalize ground truth mask for consistent visualization
+            gt_mask_normalized = self._normalize_instance_mask(gt_mask)
+            gt_max_instances = np.max(gt_mask_normalized) if np.max(gt_mask_normalized) > 0 else 1
+            
+            # Create comparison plot with ground truth column (3 columns)
+            import matplotlib.pyplot as plt
+            
+            fig, axes = plt.subplots(2, 3, figsize=(12, 8))
+            
+            # First column, top row: Original input image
+            axes[0, 0].imshow(original_image, cmap='gray')
+            axes[0, 0].set_title("Original Image\nInput", fontsize=10, fontweight='bold')
+            axes[0, 0].axis('off')
+            
+            # First column, bottom row: Ground truth mask
+            axes[1, 0].imshow(gt_mask_normalized, cmap='viridis', vmin=0, vmax=gt_max_instances)
+            axes[1, 0].set_title("Ground Truth\nReference", fontsize=9, fontweight='bold')
+            axes[1, 0].axis('off')
+            
+            # Process CPU OpenCL (column 2) and CPU skimage (column 3)
+            for idx, (mask_entry, col_idx, label) in enumerate([
+                (cpu_opencl, 1, "CPU OpenCL\n(pyclesperanto)"),
+                (cpu_skimage, 2, "CPU Fallback\n(skimage)")
+            ]):
+                device_mask = self._load_mask(mask_entry)
+                if device_mask is None:
+                    continue
+                
+                device_model = mask_entry.get('device_model', mask_entry['device_name'])
+                
+                # Normalize device mask for consistent visualization
+                device_mask_normalized = self._normalize_instance_mask(device_mask)
+                device_max_instances = np.max(device_mask_normalized) if np.max(device_mask_normalized) > 0 else 1
+                
+                # Top row: Original masks
+                axes[0, col_idx].imshow(device_mask_normalized, cmap='viridis', vmin=0, vmax=device_max_instances)
+                axes[0, col_idx].set_title(f"{label}\n{device_model}", fontsize=10, fontweight='bold')
+                axes[0, col_idx].axis('off')
+                
+                # Bottom row: Binary difference visualization
+                # Convert instance masks to binary masks for meaningful comparison
+                gt_binary = (gt_mask > 0).astype(float)
+                device_binary = (device_mask > 0).astype(float)
+                
+                # Create binary difference mask
+                diff_binary = (device_binary != gt_binary).astype(float)
+                
+                # Create RGB image: white background, red differences
+                diff_rgb = np.ones((diff_binary.shape[0], diff_binary.shape[1], 3))
+                diff_rgb[:, :, 1] = 1 - diff_binary  # Green channel
+                diff_rgb[:, :, 2] = 1 - diff_binary  # Blue channel
+                
+                axes[1, col_idx].imshow(diff_rgb)
+                
+                # Calculate metrics
+                diff_pixels = int(diff_binary.sum())
+                total_pixels = int(diff_binary.size)
+                diff_percent = (diff_pixels / total_pixels) * 100
+                
+                # Format percentage
+                if diff_percent < 0.01 and diff_percent > 0:
+                    diff_percent_str = f"{diff_percent:.2e}%"
+                else:
+                    diff_percent_str = f"{diff_percent:.2f}%"
+                
+                gt_cells = self._count_non_overlapped_cells(gt_mask)
+                device_cells = len(np.unique(device_mask)) - 1
+                
+                axes[1, col_idx].set_title(
+                    f"Binary Mask Differences\n({diff_percent_str}, {diff_pixels:,} pixels)\n"
+                    f"GT:{gt_cells} vs Dev:{device_cells} cells", 
+                    fontsize=9, fontweight='bold'
+                )
+                
+                # Add black border around bottom row images
+                for spine in axes[1, col_idx].spines.values():
+                    spine.set_visible(True)
+                    spine.set_color('black')
+                    spine.set_linewidth(3)
+                axes[1, col_idx].tick_params(which='both', length=0)
+                
+                axes[1, col_idx].set_xticks([])
+                axes[1, col_idx].set_yticks([])
+            
+            # Extract precision from config_key for title
+            precision = config_key.split('_')[-1]
+            
+            plt.suptitle(
+                f'PyClesperanto CPU Comparison (OpenCL vs skimage) - {precision}\n'
+                f'Top: Instance Masks | Bottom: Binary Mask Differences (White=Match, Red=Differ)',
+                fontsize=14, fontweight='bold'
+            )
+            plt.tight_layout()
+            
+            # Save plot
+            self._save_evaluation_plot(fig, f'ground_truth_comparison_cpu_opencl_vs_skimage_{config_key}')
+            plt.close(fig)
+            
+        except Exception as e:
+            logger.error(f"Failed to create CPU OpenCL vs skimage ground truth comparison for {config_key}: {e}")
     
     def _create_device_comparison_matrix(self, config_key: str, mask_data: List[Dict[str, Any]]):
         """
@@ -1409,6 +1766,138 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
         except Exception as e:
             logger.error(f"Failed to create reduced CPU device comparison matrix for {config_key}: {e}")
 
+    def _create_device_comparison_gpu_vs_cpu(self, config_key: str, mask_data: List[Dict[str, Any]]):
+        """
+        Create simplified GPU vs CPU comparison visualization.
+        
+        Creates a 2x2 grid showing one GPU result and one CPU result for quick comparison.
+        Shows the masks on the diagonal and differences in the lower triangle.
+        """
+        if len(mask_data) < 2:
+            logger.debug(f"Not enough devices for GPU vs CPU comparison in {config_key}")
+            return
+        
+        try:
+            # Filter mask data to one GPU and one CPU
+            filtered_mask_data = self._reduce_to_gpu_vs_cpu(mask_data)
+            
+            # We need exactly 2 devices (one GPU, one CPU)
+            if len(filtered_mask_data) != 2:
+                logger.debug(f"GPU vs CPU comparison requires exactly 2 devices (1 GPU, 1 CPU) for {config_key}, got {len(filtered_mask_data)}")
+                return
+            
+            # Check if we have both GPU and CPU
+            device_types = [entry.get('device_type', '').lower() for entry in filtered_mask_data]
+            has_gpu = any(dt != 'cpu' for dt in device_types)
+            has_cpu = any(dt == 'cpu' for dt in device_types)
+            
+            if not (has_gpu and has_cpu):
+                logger.debug(f"GPU vs CPU comparison requires both GPU and CPU devices for {config_key}")
+                return
+            
+            # Load masks and prepare device info
+            loaded_masks = []
+            device_info = []
+            
+            for mask_entry in filtered_mask_data:
+                device_mask = self._load_mask(mask_entry)
+                if device_mask is None:
+                    continue
+                
+                # Normalize mask for consistent visualization
+                normalized_mask = self._normalize_instance_mask(device_mask)
+                loaded_masks.append((device_mask, normalized_mask))
+                
+                device_flavour = mask_entry.get('flavour', 'unknown')
+                device_type = mask_entry['device_type']
+                device_model = mask_entry.get('device_model', mask_entry['device_name'])
+                
+                # Simple label: GPU or CPU with device model
+                if device_type.lower() == 'cpu':
+                    title = f"CPU:\n{device_model}"
+                else:
+                    title = f"GPU:\n{device_model}"
+                
+                device_info.append({
+                    'device_type': device_type,
+                    'device_model': device_model,
+                    'title': title
+                })
+            
+            if len(loaded_masks) != 2:
+                logger.debug(f"Could not load both masks for GPU vs CPU comparison in {config_key}")
+                return
+            
+            # Create 2x2 comparison matrix
+            import matplotlib.pyplot as plt
+            
+            fig, axes = plt.subplots(2, 2, figsize=(8, 8))
+            
+            for i in range(2):
+                for j in range(2):
+                    original_mask_i, normalized_mask_i = loaded_masks[i]
+                    original_mask_j, normalized_mask_j = loaded_masks[j]
+                    
+                    if i == j:
+                        # Diagonal: show normalized original mask with dynamic colormap
+                        mask_max_instances = np.max(normalized_mask_i) if np.max(normalized_mask_i) > 0 else 1
+                        axes[i][j].imshow(normalized_mask_i, cmap='viridis', vmin=0, vmax=mask_max_instances)
+                        axes[i][j].set_title(device_info[i]['title'], fontsize=10, fontweight='bold')
+                    elif i > j:
+                        # Lower triangle: show binary difference visualization
+                        # Convert instance masks to binary masks for meaningful comparison
+                        binary_i = (original_mask_i > 0).astype(float)
+                        binary_j = (original_mask_j > 0).astype(float)
+                        
+                        # Create binary difference mask
+                        diff_binary = (binary_i != binary_j).astype(float)
+                        
+                        # Create RGB image: white background, red differences
+                        diff_rgb = np.ones((diff_binary.shape[0], diff_binary.shape[1], 3))
+                        diff_rgb[:, :, 1] = 1 - diff_binary  # Green channel
+                        diff_rgb[:, :, 2] = 1 - diff_binary  # Blue channel
+                        
+                        axes[i][j].imshow(diff_rgb)
+                        
+                        # Calculate metrics
+                        diff_pixels = int(diff_binary.sum())
+                        total_pixels = int(diff_binary.size)
+                        diff_percent = (diff_pixels / total_pixels) * 100
+                        
+                        if diff_percent < 0.01 and diff_percent > 0:
+                            diff_percent_str = f"{diff_percent:.2e}%"
+                        else:
+                            diff_percent_str = f"{diff_percent:.2f}%"
+                        
+                        axes[i][j].set_title(f"GPU vs CPU Diff\n{diff_percent_str} ({diff_pixels:,}px)", 
+                                            fontsize=9, fontweight='bold')
+                        
+                        # Add black border for difference plots
+                        for spine in axes[i][j].spines.values():
+                            spine.set_color('black')
+                            spine.set_linewidth(3)
+                        axes[i][j].tick_params(which='both', length=0)
+                    else:
+                        # Upper triangle: hide these plots (redundant)
+                        axes[i][j].set_visible(False)
+                    
+                    # Set axis properties
+                    axes[i][j].set_xticks([])
+                    axes[i][j].set_yticks([])
+            
+            # Extract precision from config_key for title
+            precision = config_key.split('_')[-1]
+            plt.suptitle(f'PyClesperanto GPU vs CPU Comparison - {precision}',
+                         fontsize=14, fontweight='bold')
+            plt.tight_layout()
+            
+            # Save plot
+            self._save_evaluation_plot(fig, f'device_comparison_gpu_vs_cpu_{config_key}')
+            plt.close(fig)
+            
+        except Exception as e:
+            logger.error(f"Failed to create GPU vs CPU comparison for {config_key}: {e}")
+
     def _reduce_cpu_devices(self, mask_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Reduce CPU devices to only one representative to avoid redundancy.
@@ -1435,6 +1924,39 @@ class PyclesperantoArtificialSegmentation(PyClesperantoBenchmark):
             else:
                 # Keep all non-CPU devices
                 filtered_data.append(mask_entry)
+        
+        return filtered_data
+    
+    def _reduce_to_gpu_vs_cpu(self, mask_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Reduce devices to one GPU and one CPU representative for simplified comparison.
+        
+        Keeps only the first GPU device and the first CPU device found.
+        
+        Args:
+            mask_data: List of mask entries with device information
+            
+        Returns:
+            Filtered list with at most one GPU and one CPU device
+        """
+        filtered_data = []
+        gpu_found = False
+        cpu_found = False
+        
+        for mask_entry in mask_data:
+            device_type = mask_entry.get('device_type', '').lower()
+            
+            if device_type == 'cpu':
+                if not cpu_found:
+                    filtered_data.append(mask_entry)
+                    cpu_found = True
+                # Skip additional CPU devices
+            else:
+                # Non-CPU devices are treated as GPU
+                if not gpu_found:
+                    filtered_data.append(mask_entry)
+                    gpu_found = True
+                # Skip additional GPU devices
         
         return filtered_data
     

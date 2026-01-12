@@ -24,7 +24,7 @@ benchmarks:
         - [4096, 4096]
         - [8192, 8192]
         - [16384, 16384]
-        - [32768, 32768]
+        # - [32768, 32768] # failed with this size
       gpu_resolutions:
         - [128, 128]
         - [256, 256]
@@ -34,7 +34,7 @@ benchmarks:
         - [4096, 4096]
         - [8192, 8192]
         - [16384, 16384]
-        - [32768, 32768]
+        # - [32768, 32768] # failed with this size
       devices:
         auto_detect: true
         exclude_patterns: []
@@ -42,4 +42,4 @@ benchmarks:
         include_gpu: true
       evaluation:
         included_results: None # defaults to latest per flavour
-        max_resolution_analysis: [4096, 4096]  # Cap resolution for ground truth and device comparison analysis
+        max_resolution_analysis: [1024, 1024]  # Cap resolution for ground truth and device comparison analysis

@@ -81,6 +81,32 @@ class PyClesperantoBenchmark(BaseBenchmark):
                 'id': 'cpu-fallback',
                 'arkitekt_flavour': flavour  # Store the flavour for result association
             })
+        elif flavour == "vanilla":
+            # For vanilla flavour, detect OpenCL CPU devices AND add skimage fallback for comparison
+            if self.opencl_available:
+                device_names = self.opencl.available_device_names()
+                for i in range(len(device_names)):
+                    props = self.opencl.select_device(device_index=i)
+                    # Check if this is a CPU device based on the name
+                    device_name = props.name
+                    is_cpu = 'CPU' in device_name.upper()
+                    
+                    devices.append({
+                        'name': device_name,
+                        'type': 'cpu' if is_cpu else 'opencl',
+                        'framework': 'pyclesperanto',
+                        'id': i,
+                        'arkitekt_flavour': flavour
+                    })
+            
+            # Always add skimage CPU fallback for vanilla to enable comparison
+            devices.append({
+                'name': 'CPU-fallback',
+                'type': 'cpu',
+                'framework': 'skimage',
+                'id': 'cpu-fallback',
+                'arkitekt_flavour': flavour
+            })
         
         logger.debug(f"Total devices detected: {len(devices)}")
         return devices
