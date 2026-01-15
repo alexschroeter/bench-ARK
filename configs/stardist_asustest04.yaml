@@ -1,13 +1,14 @@
 run_benchmarks: true
 evaluate_benchmarks: true
-dataset: "stardist_artificial_segmentation_dataset"
+dataset: "stardist_artificial_benchmark_jan2026"
 logging:
   file: null
   level: DEBUG
 
 benchmarks:
   enabled:
-    - stardist_artificial_segmentation
+    - stardist_training
+    # - stardist_artificial_segmentation
   parameters:
     stardist_artificial_segmentation:
       warmup_iterations: 0
@@ -20,7 +21,7 @@ benchmarks:
         - [256, 256]
         - [512, 512]
         - [1024, 1024]
-        - [2048, 2048]
+        # - [2048, 2048]
         # - [4096, 4096]
         # - [8192, 8192]
         # - [16384, 16384]
@@ -30,7 +31,7 @@ benchmarks:
         - [256, 256]
         - [512, 512]
         - [1024, 1024]
-        - [2048, 2048]
+        # - [2048, 2048]
         # - [4096, 4096]
         # - [8192, 8192]
         # - [16384, 16384]
@@ -42,3 +43,12 @@ benchmarks:
         include_gpu: true
       evaluation:
         included_results: None # defaults to latest per flavour
+    stardist_training:
+      use_pretrained_model: false  # Set to true to use pretrained model, false to train custom model
+      deterministic_mode: false  # Set to true for reproducible results (slower performance)
+      seed: 42  # Random seed used when deterministic_mode is true
+      n_epochs: 10
+      steps_per_epoch: 10
+      n_rays: 32
+      warmup_iterations: 0
+      num_iterations: 1

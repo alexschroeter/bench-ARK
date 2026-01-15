@@ -78,40 +78,40 @@ class TensorFlowBenchmark(BaseBenchmark):
         if self.config.get("arkitekt_flavour") == "intel_gpu":
             logger.debug("Intel GPU flavour detected, checking for XPU devices")
             # Intel XPU devices
-            if self.ipex and hasattr(self.tensorflow, 'xpu'):
+            if True:
                 logger.debug("Intel extension and XPU available")
-                try:
-                    if self.tensorflow.test.is_gpu_available():
-                        physical_devices = self.tensorflow.config.list_physical_devices('GPU')
-                        logger.debug(f"XPU is available, device count: {len(physical_devices)}")
-                        for i in range(len(physical_devices)):
-                            props = self.tensorflow.config.experimental.get_device_details(physical_devices[i])
-                            # logger.debug(f"Adding XPU device {i}: {props["device_name"]}")
-                            devices.append({
-                                'name': f'{props["device_name"]}',
-                                'type': 'xpu',
-                                'id': i,
-                                # 'memory': props.total_memory / 1024**3,  # GB
-                                'framework': 'tensorflow',
-                                'properties': {
-                                    # 'name': props.name,
-                                    # 'platform_name': getattr(props, 'platform_name', 'Unknown'),
-                                    # 'type': getattr(props, 'type', 'gpu'),
-                                    # 'driver_version': getattr(props, 'driver_version', 'Unknown'),
-                                    # 'max_compute_units': getattr(props, 'max_compute_units', 0),
-                                    # 'gpu_eu_count': getattr(props, 'gpu_eu_count', 0),
-                                    # 'gpu_subslice_count': getattr(props, 'gpu_subslice_count', 0),
-                                    # 'max_work_group_size': getattr(props, 'max_work_group_size', 0),
-                                    # 'total_memory': props.total_memory,
-                                    # 'has_fp16': getattr(props, 'has_fp16', False),
-                                    # 'has_fp64': getattr(props, 'has_fp64', False),
-                                    # 'has_atomic64': getattr(props, 'has_atomic64', False)
-                                }
-                            })
-                    else:
-                        logger.debug("XPU is not available")
-                except Exception as e:
-                    logger.debug(f"Intel XPU detection failed: {e}")
+                # try:
+                if self.tensorflow.test.is_gpu_available():
+                    physical_devices = self.tensorflow.config.list_physical_devices('GPU')
+                    logger.debug(f"XPU is available, device count: {len(physical_devices)}")
+                    for i in range(len(physical_devices)):
+                        props = self.tensorflow.config.experimental.get_device_details(physical_devices[i])
+                        # logger.debug(f"Adding XPU device {i}: {props["device_name"]}")
+                        devices.append({
+                            'name': f'{props["device_name"]}',
+                            'type': 'xpu',
+                            'id': i,
+                            # 'memory': props.total_memory / 1024**3,  # GB
+                            'framework': 'tensorflow',
+                            'properties': {
+                                # 'name': props.name,
+                                # 'platform_name': getattr(props, 'platform_name', 'Unknown'),
+                                # 'type': getattr(props, 'type', 'gpu'),
+                                # 'driver_version': getattr(props, 'driver_version', 'Unknown'),
+                                # 'max_compute_units': getattr(props, 'max_compute_units', 0),
+                                # 'gpu_eu_count': getattr(props, 'gpu_eu_count', 0),
+                                # 'gpu_subslice_count': getattr(props, 'gpu_subslice_count', 0),
+                                # 'max_work_group_size': getattr(props, 'max_work_group_size', 0),
+                                # 'total_memory': props.total_memory,
+                                # 'has_fp16': getattr(props, 'has_fp16', False),
+                                # 'has_fp64': getattr(props, 'has_fp64', False),
+                                # 'has_atomic64': getattr(props, 'has_atomic64', False)
+                            }
+                        })
+                else:
+                    logger.debug("XPU is not available")
+                # except Exception as e:
+                #     logger.debug(f"Intel XPU detection failed: {e}")
             else:
                 logger.debug(f"Intel extension available: {self.ipex is not None}, XPU hasattr: {hasattr(self.tensorflow, 'xpu') if self.tensorflow else False}")
         
