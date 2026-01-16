@@ -1,6 +1,6 @@
 run_benchmarks: true
 evaluate_benchmarks: true
-dataset: "stardist_artificial_benchmark_jan2026"
+dataset: "stardist_artificial_benchmark_jan2026_deterministic"
 logging:
   file: null
   level: DEBUG
@@ -45,7 +45,7 @@ benchmarks:
         included_results: None # defaults to latest per flavour
     stardist_training:
       use_pretrained_model: false  # Set to true to use pretrained model, false to train custom model
-      deterministic_mode: false  # Set to true for reproducible results (slower performance)
+      deterministic_mode: true  # Set to true for reproducible results (slower performance)
       seed: 42  # Random seed used when deterministic_mode is true
       n_epochs: 400
       steps_per_epoch: 10

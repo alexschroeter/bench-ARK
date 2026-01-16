@@ -456,7 +456,7 @@ class StardistTraining(TensorFlowBenchmark):
             # Set environment variables for deterministic behavior
             # Note: These should ideally be set before TF import, but we set them
             # here for cases where TF was already imported
-            os.environ['TF_DETERMINISTIC_OPS'] = '1'
+            # os.environ['TF_DETERMINISTIC_OPS'] = '1' # This fails runs because the maxpool op is not deterministic
             os.environ['TF_CUDNN_DETERMINISTIC'] = '1'
             os.environ['PYTHONHASHSEED'] = str(seed)
 
@@ -471,15 +471,15 @@ class StardistTraining(TensorFlowBenchmark):
 
             # Enable TensorFlow deterministic operations (TF 2.8+)
             try:
-                tf.config.experimental.enable_op_determinism()
-                logger.debug("      TensorFlow op determinism enabled")
+                # tf.config.experimental.enable_op_determinism()
+                logger.debug("      TensorFlow op determinism is not enabled because it breaks maxpool op")
             except AttributeError:
                 logger.warning("      tf.config.experimental.enable_op_determinism() "
                               "not available (requires TensorFlow 2.8+)")
 
             logger.debug(f"      Deterministic settings applied:")
             logger.debug(f"        - PYTHONHASHSEED: {seed}")
-            logger.debug(f"        - TF_DETERMINISTIC_OPS: 1")
+            logger.debug(f"        - TF_DETERMINISTIC_OPS: 0 as a workaround")
             logger.debug(f"        - TF_CUDNN_DETERMINISTIC: 1")
             logger.debug(f"        - Python random seed: {seed}")
             logger.debug(f"        - NumPy random seed: {seed}")
